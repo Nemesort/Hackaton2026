@@ -44,6 +44,8 @@ public class MapWindow : EditorWindow
     private Vector2 _scroll;
     private MapTag _viewFilter = MapTag.Manager;
 
+    private HashSet<Type> _expandedNodes = new HashSet<Type>();
+
     private IEnumerable<Type> GetAllTypesSafely()
     {
         Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
@@ -140,12 +142,12 @@ public class MapWindow : EditorWindow
         {
             EditorGUILayout.LabelField($"{node.Attr.DisplayName}  [{node.Attr.Tags}]", EditorStyles.boldLabel);
 
-            if (node.Exposed.Count > 0)
-                EditorGUILayout.LabelField("  Exposes: " + string.Join(", ", node.Exposed));
+                if (node.Exposed.Count > 0)
+                    EditorGUILayout.LabelField("Exposes: " + string.Join(", ", node.Exposed));
 
-            foreach (CachedConsumer c in node.Consumers.OrderBy(c => c.Name))
-            {
-                string usesTxt = c.Uses.Count > 0 ? $" (uses: {string.Join(", ", c.Uses)})" : "";
+                foreach (CachedConsumer c in node.Consumers.OrderBy(c => c.Name))
+                {
+                    string usesTxt = c.Uses.Count > 0 ? $" (uses: {string.Join(", ", c.Uses)})" : "";
                 EditorGUILayout.LabelField($"   └ {c.Name}{usesTxt}");
             }
 
