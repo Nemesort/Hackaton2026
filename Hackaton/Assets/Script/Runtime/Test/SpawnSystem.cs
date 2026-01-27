@@ -4,4 +4,5 @@
 [Depends(typeof(EntityManager), "mobs")]
 public class SpawnSystem
 {
+    private EntityManager entityManager;
 }

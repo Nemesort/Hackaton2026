@@ -302,6 +302,12 @@
       },
       "url": "https://packages.unity.com"
     },
+    "nomad-project-viewer": {
+      "version": "file:com.named_project_viewer",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {}
+    },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",
       "depth": 0,

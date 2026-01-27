@@ -1,0 +1,12 @@
+{
+    "name": "nomad-project-viewer",
+    "displayName": "Nomad Project Viewer",
+    "version": "0.0.1",
+    "description": "Visualize the architecture of your project",
+    "unity": "6000.0",
+    "keywords": [
+        "Viewer",
+        "Visualize",
+        "Visualizer"
+    ]
+}

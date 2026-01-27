@@ -5,93 +5,157 @@ using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 
+class CachedNode
+{
+    public Type Type;
+    public MapNodeAttribute Attr;
+    public List<string> Exposed = new();
+    public List<CachedConsumer> Consumers = new();
+}
+
+class CachedConsumer
+{
+    public string Name;
+    public List<string> Uses = new();
+}
+
+
+public class Node
+{
+    public Type Type { get; set; }
+    public MapNodeAttribute Attr { get; set; }
+}
+
+public class Consummer
+{
+    public Type ConsumerType { get; set; }
+    public string ConsumerName { get; set; }
+    public IEnumerable<DependsAttribute> Deps { get; set; }
+}
+
 public class MapWindow : EditorWindow
 {
     [MenuItem("Tools/System Map")]
     public static void Open() => GetWindow<MapWindow>("System Map");
+
+    private List<CachedNode> _cachedNodes;
+    private bool _cacheBuilt = false;
 
     private Vector2 _scroll;
     private MapTag _viewFilter = MapTag.Manager;
 
     private IEnumerable<Type> GetAllTypesSafely()
     {
-        var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-        foreach (var a in assemblies)
+        Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+        foreach (Assembly a in assemblies)
         {
-            Type[] types = null;
+            IEnumerable<Type> types;
             try { types = a.GetTypes(); }
-            catch (ReflectionTypeLoadException e) { types = e.Types.Where(t => t != null).ToArray(); }
-            foreach (var t in types) yield return t;
+            catch (ReflectionTypeLoadException e) { types = e.Types.Where(t => t != null); }
+            foreach (Type t in types) yield return t;
         }
     }
 
     private static bool HasAnyTag(MapTag tags, MapTag filter)
-        => filter == MapTag.None ? true : (tags & filter) != 0;
+        => filter == MapTag.None || (tags & filter) != 0;
+
+    private void BuildCache()
+    {
+        _cachedNodes = new List<CachedNode>();
+
+        IEnumerable<Type> allTypes = GetAllTypesSafely();
+
+        List<Node> nodes = allTypes
+            .Select(t => new Node { Type = t, Attr = t.GetCustomAttribute<MapNodeAttribute>() })
+            .Where(x => x.Attr != null)
+            .ToList();
+
+        Dictionary<Type, MapNodeAttribute> nodeByType = nodes.ToDictionary(n => n.Type, n => n.Attr);
+
+        foreach (Node node in nodes)
+        {
+            CachedNode cached = new CachedNode
+            {
+                Type = node.Type,
+                Attr = node.Attr
+            };
+
+            // Exposed
+            cached.Exposed = node.Type
+                .GetMembers(BindingFlags.Public | BindingFlags.Instance)
+                .Where(m => m.GetCustomAttribute<ExposedAttribute>() != null)
+                .Select(m =>
+                {
+                    ExposedAttribute ex = m.GetCustomAttribute<ExposedAttribute>();
+                    return string.IsNullOrWhiteSpace(ex.Alias) ? m.Name : ex.Alias;
+                })
+                .Distinct()
+                .ToList();
+
+            _cachedNodes.Add(cached);
+        }
+
+        // Consumers (fait une seule fois, pas N² par frame)
+        foreach (CachedNode cached in _cachedNodes)
+        {
+            Type targetType = cached.Type;
+
+            foreach (CachedNode other in _cachedNodes)
+            {
+                DependsAttribute[] deps = other.Type
+                    .GetCustomAttributes<DependsAttribute>()
+                    .Where(d => d.TargetType == targetType)
+                    .ToArray();
+
+                if (deps.Length == 0) continue;
+
+                CachedConsumer consumer = new CachedConsumer
+                {
+                    Name = other.Attr.DisplayName,
+                    Uses = deps.SelectMany(d => d.Uses)
+                               .Where(s => !string.IsNullOrWhiteSpace(s))
+                               .Distinct()
+                               .ToList()
+                };
+
+                cached.Consumers.Add(consumer);
+            }
+        }
+
+        _cacheBuilt = true;
+    }
 
     void OnGUI()
     {
         EditorGUILayout.LabelField("View Filter (tags)", EditorStyles.boldLabel);
         _viewFilter = (MapTag)EditorGUILayout.EnumFlagsField(_viewFilter);
 
-        if (GUILayout.Button("Refresh")) Repaint();
+        if (GUILayout.Button("Refresh") || !_cacheBuilt) BuildCache();
 
         _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
-        var allTypes = GetAllTypesSafely().ToArray();
-
-        var nodes = allTypes
-            .Select(t => new { Type = t, Attr = t.GetCustomAttribute<MapNodeAttribute>() })
-            .Where(x => x.Attr != null)
-            .ToList();
-
-        var filteredNodes = nodes
-            .Where(n => HasAnyTag(n.Attr.Tags, _viewFilter))
-            .ToList();
-
-        var nodeByType = filteredNodes.ToDictionary(n => n.Type, n => n.Attr);
-
-        foreach (var node in filteredNodes.OrderBy(n => n.Attr.DisplayName))
+        foreach (CachedNode node in _cachedNodes
+             .Where(n => HasAnyTag(n.Attr.Tags, _viewFilter))
+             .OrderBy(n => n.Attr.DisplayName))
         {
-            var t = node.Type;
-            var a = node.Attr;
+            EditorGUILayout.LabelField($"{node.Attr.DisplayName}  [{node.Attr.Tags}]", EditorStyles.boldLabel);
 
-            EditorGUILayout.LabelField($"{a.DisplayName}  [{a.Tags}]", EditorStyles.boldLabel);
+            if (node.Exposed.Count > 0)
+                EditorGUILayout.LabelField("  Exposes: " + string.Join(", ", node.Exposed));
 
-            var exposed = t.GetMembers(BindingFlags.Public | BindingFlags.Instance)
-                .Where(m => m.GetCustomAttribute<ExposedAttribute>() != null)
-                .Select(m =>
-                {
-                    var ex = m.GetCustomAttribute<ExposedAttribute>();
-                    return string.IsNullOrWhiteSpace(ex.Alias) ? m.Name : ex.Alias;
-                })
-                .Distinct()
-                .ToList();
-
-            if (exposed.Count > 0)
-                EditorGUILayout.LabelField("  Exposes: " + string.Join(", ", exposed));
-
-            var consumers = filteredNodes
-                .Select(n => new
-                {
-                    ConsumerType = n.Type,
-                    ConsumerName = n.Attr.DisplayName,
-                    Deps = n.Type.GetCustomAttributes<DependsAttribute>()
-                        .Where(d => d.TargetType == t)
-                        .ToArray()
-                })
-                .Where(x => x.Deps.Length > 0)
-                .ToList();
-
-            foreach (var c in consumers.OrderBy(x => x.ConsumerName))
+            foreach (CachedConsumer c in node.Consumers.OrderBy(c => c.Name))
             {
-                var uses = c.Deps.SelectMany(d => d.Uses).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
-                var usesTxt = uses.Count > 0 ? $" (uses: {string.Join(", ", uses)})" : "";
-                EditorGUILayout.LabelField($"   └ {c.ConsumerName}{usesTxt}");
+                string usesTxt = c.Uses.Count > 0 ? $" (uses: {string.Join(", ", c.Uses)})" : "";
+                EditorGUILayout.LabelField($"   └ {c.Name}{usesTxt}");
             }
 
             EditorGUILayout.Space();
         }
 
         EditorGUILayout.EndScrollView();
+    }
+    void OnEnable()
+    {
+        BuildCache();
     }
 }

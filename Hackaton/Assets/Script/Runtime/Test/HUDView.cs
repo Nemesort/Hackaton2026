@@ -5,4 +5,6 @@
 [Depends(typeof(UIManager), "currentScreen", "isPaused")]
 public class HudView
 {
+    private StatsManager statsManager;
+    private UIManager uiManager;
 }

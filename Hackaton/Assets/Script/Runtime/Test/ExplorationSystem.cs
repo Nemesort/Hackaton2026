@@ -4,4 +4,5 @@
 [Depends(typeof(StatsManager), "pv", "sp")]
 public class ExplorationSystem
 {
+    private StatsManager statsManager;
 }
