@@ -188,15 +188,104 @@ public class Map2Window : EditorWindow
         EditorGUI.indentLevel = previousIndent;
     }
 
+    private void WriteNodeRecursive(
+    System.Text.StringBuilder sb,
+    CachedNode node,
+    HashSet<CachedNode> visited,
+    int indent)
+    {
+        if (visited.Contains(node)) return;
+        visited.Add(node);
+
+        string indentStr = new string(' ', indent * 4);
+        string title = $"{node.Type.FullName} [{node.Attr.Tags}]";
+
+        sb.AppendLine($"{indentStr} - **{title}**");
+        if (!string.IsNullOrEmpty(node.Comment))
+            sb.AppendLine($"{indentStr}  - _{node.Comment}_");
+
+        if (node.Exposed.Count > 0)
+        {
+            sb.AppendLine($"{indentStr}  Exposes: {string.Join(", ", node.Exposed)}");
+        }
+
+        foreach (NodeLink link in node.Outgoing.OrderBy(l => l.Target.Type.FullName))
+        {
+            string usesTxt = link.Uses.Count > 0
+                ? $" (uses: {string.Join(", ", link.Uses)})"
+                : "";
+
+            sb.AppendLine($"{indentStr}  -> Uses {link.Target.Type.FullName}{usesTxt}");
+        }
+
+        foreach (NodeLink link in node.Outgoing.OrderBy(l => l.Target.Type.FullName))
+        {
+            WriteNodeRecursive(sb, link.Target, visited, indent + 1);
+        }
+    }
+
+    private void ExportMap()
+    {
+        if (!_cacheBuilt) BuildCache();
+
+        string path = EditorUtility.SaveFilePanel(
+            "Nemad Viewer Exported Map",
+            "",
+            "Nemad Viewer Exported Map",
+             "md");
+
+        if (string.IsNullOrEmpty(path))
+            return;
+
+        var roots = _cachedNodes
+            .Where(n => n.Incoming.Count == 0)
+            .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
+            .OrderBy(n => n.Type.FullName)
+            .ToList();
+
+        if (roots.Count == 0)
+            roots = _cachedNodes
+                .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
+                .OrderBy(n => n.Type.FullName)
+                .ToList();
+
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+
+        sb.AppendLine("# Nemad Viewer Map\n");
+
+        foreach (var root in roots)
+        {
+            WriteNodeRecursive(sb, root, new HashSet<CachedNode>(), 0);
+            sb.AppendLine();
+        }
+
+        System.IO.File.WriteAllText(path, sb.ToString());
+        EditorUtility.RevealInFinder(path);
+    }
+
     void OnGUI()
     {
         List<CachedNode> roots;
-        EditorGUILayout.LabelField("View Filter (tags)", EditorStyles.boldLabel);
 
+        //Refresh
+        EditorGUILayout.Space(10);
         if (GUILayout.Button("Refresh") || !_cacheBuilt) BuildCache();
 
+        // Exports
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("Export", EditorStyles.boldLabel);
+        if (GUILayout.Button("Export as .md"))
+        {
+            ExportMap();
+        }
+
+        // Filters
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("View Filter (tags)", EditorStyles.boldLabel);
         _viewFilter = (MapTag)EditorGUILayout.EnumFlagsField(_viewFilter);
 
+        // Accordions
+        EditorGUILayout.Space(10);
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button("Expand All"))
         {
