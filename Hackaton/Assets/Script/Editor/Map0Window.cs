@@ -1,11 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
 using UnityEditor;
 using UnityEngine;
+using System;
+using System.Linq;
+using System.Reflection;
+using System.Collections.Generic;
 
-public class Map2Window : EditorWindow
+public class Map0Window : EditorWindow
 {
     class CachedNode
     {
@@ -24,16 +24,14 @@ public class Map2Window : EditorWindow
         public List<string> Uses = new();
     }
 
-    [MenuItem("Tools/System Map 2")]
-    public static void Open() => GetWindow<Map2Window>("System Map 2");
+    [MenuItem("Tools/System Map 0")]
+    public static void Open() => GetWindow<Map0Window>("System Map 0");
 
     private List<CachedNode> _cachedNodes;
     private bool _cacheBuilt = false;
 
     private Vector2 _scroll;
     private MapTag _viewFilter = MapTag.Manager;
-
-    private HashSet<string> _expandedPaths = new HashSet<string>();
 
     private IEnumerable<Type> GetAllTypesSafely()
     {
@@ -110,61 +108,21 @@ public class Map2Window : EditorWindow
 
         _cacheBuilt = true;
     }
-    private void CollectPaths(CachedNode node, string path, HashSet<CachedNode> visited)
-    {
-        if (visited.Contains(node)) return;
-        visited.Add(node);
-
-        _expandedPaths.Add(path);
-
-        foreach (var link in node.Outgoing)
-        {
-            string childPath = path + "/" + link.Target.Type.FullName;
-            CollectPaths(link.Target, childPath, new HashSet<CachedNode>(visited));
-        }
-    }
-
-    private bool DrawFoldout(CachedNode node, string path)
-    {
-        bool isExpanded = _expandedPaths.Contains(path);
-
-        GUIStyle foldoutStyle = new GUIStyle(EditorStyles.foldout)
-        {
-            fontStyle = FontStyle.Bold
-        };
-
-        GUIContent label = new GUIContent(
-            $"{node.Type.FullName}  [{node.Attr.Tags}]",
-            node.Comment ?? ""
-        );
-
-        bool newExpanded = EditorGUILayout.Foldout(
-            isExpanded,
-            label,
-            true,
-            foldoutStyle
-        );
-
-        if (newExpanded != isExpanded)
-        {
-            if (newExpanded) _expandedPaths.Add(path);
-            else _expandedPaths.Remove(path);
-        }
-
-        return newExpanded;
-    }
 
     void DrawNode(CachedNode node, int indent, HashSet<CachedNode> visited, string path)
     {
         if (visited.Contains(node)) return;
         visited.Add(node);
 
+
+        GUIContent label = new GUIContent(
+            $"{node.Type.FullName}  [{node.Attr.Tags}]",
+            node.Comment ?? ""
+        );
+        EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+
         int previousIndent = EditorGUI.indentLevel;
-        EditorGUI.indentLevel = indent;
-
-        bool expanded = DrawFoldout(node, path);
-
-        if (!expanded) return;
+        EditorGUI.indentLevel = indent + 1;
 
         if (node.Exposed.Count > 0)
             EditorGUILayout.LabelField($"Exposes: {string.Join(", ", node.Exposed)}");
@@ -188,37 +146,118 @@ public class Map2Window : EditorWindow
         EditorGUI.indentLevel = previousIndent;
     }
 
+    private void WriteNodeRecursive(
+    System.Text.StringBuilder sb,
+    CachedNode node,
+    HashSet<CachedNode> visited,
+    int indent,
+    bool markdown)
+    {
+        if (visited.Contains(node)) return;
+        visited.Add(node);
+
+        string indentStr = new string(' ', indent * 2);
+        string title = $"{node.Type.FullName} [{node.Attr.Tags}]";
+
+        if (markdown)
+        {
+            sb.AppendLine($"{indentStr}- **{title}**");
+            if (!string.IsNullOrEmpty(node.Comment))
+                sb.AppendLine($"{indentStr}  - _{node.Comment}_");
+        }
+        else
+        {
+            sb.AppendLine($"{indentStr}{title}");
+            if (!string.IsNullOrEmpty(node.Comment))
+                sb.AppendLine($"{indentStr}  Comment: {node.Comment}");
+        }
+
+        if (node.Exposed.Count > 0)
+        {
+            sb.AppendLine($"{indentStr}  Exposes: {string.Join(", ", node.Exposed)}");
+        }
+
+        foreach (var link in node.Outgoing.OrderBy(l => l.Target.Type.FullName))
+        {
+            string usesTxt = link.Uses.Count > 0
+                ? $" (uses: {string.Join(", ", link.Uses)})"
+                : "";
+
+            sb.AppendLine($"{indentStr}  -> Uses {link.Target.Type.FullName}{usesTxt}");
+        }
+
+        foreach (var link in node.Outgoing.OrderBy(l => l.Target.Type.FullName))
+        {
+            WriteNodeRecursive(sb, link.Target, visited, indent + 1, markdown);
+        }
+    }
+
+    private void ExportMap(bool markdown)
+    {
+        if (!_cacheBuilt) BuildCache();
+
+        string path = EditorUtility.SaveFilePanel(
+            "Export System Map",
+            "",
+            "SystemMap",
+            markdown ? "md" : "txt");
+
+        if (string.IsNullOrEmpty(path))
+            return;
+
+        var roots = _cachedNodes
+            .Where(n => n.Incoming.Count == 0)
+            .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
+            .OrderBy(n => n.Type.FullName)
+            .ToList();
+
+        if (roots.Count == 0)
+            roots = _cachedNodes
+                .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
+                .OrderBy(n => n.Type.FullName)
+                .ToList();
+
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+
+        sb.AppendLine(markdown ? "# System Architecture Map\n" : "SYSTEM ARCHITECTURE MAP\n");
+
+        foreach (var root in roots)
+        {
+            WriteNodeRecursive(sb, root, new HashSet<CachedNode>(), 0, markdown);
+            sb.AppendLine();
+        }
+
+        System.IO.File.WriteAllText(path, sb.ToString());
+        EditorUtility.RevealInFinder(path);
+    }
+
     void OnGUI()
     {
-        List<CachedNode> roots;
         EditorGUILayout.LabelField("View Filter (tags)", EditorStyles.boldLabel);
+        _viewFilter = (MapTag)EditorGUILayout.EnumFlagsField(_viewFilter);
 
         if (GUILayout.Button("Refresh") || !_cacheBuilt) BuildCache();
 
-        _viewFilter = (MapTag)EditorGUILayout.EnumFlagsField(_viewFilter);
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("Export", EditorStyles.boldLabel);
 
         EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("Expand All"))
+
+        if (GUILayout.Button("Export as .txt"))
         {
-            _expandedPaths.Clear();
-
-           roots = _cachedNodes.Where(n => n.Incoming.Count == 0).ToList();
-            if (roots.Count == 0)
-                roots = _cachedNodes;
-
-            foreach (CachedNode root in roots)
-            {
-                CollectPaths(root, root.Type.FullName, new HashSet<CachedNode>());
-            }
+            ExportMap(false);
         }
 
-        if (GUILayout.Button("Collapse All"))
-            _expandedPaths.Clear();
+        if (GUILayout.Button("Export as .md"))
+        {
+            ExportMap(true);
+        }
+
         EditorGUILayout.EndHorizontal();
 
         _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
-        roots = _cachedNodes
+        List<CachedNode> roots = _cachedNodes
             .Where(n => n.Incoming.Count == 0)
             .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
             .OrderBy(n => n.Type.FullName)
@@ -237,7 +276,6 @@ public class Map2Window : EditorWindow
 
         EditorGUILayout.EndScrollView();
     }
-
     void OnEnable()
     {
         BuildCache();
