@@ -9,5 +9,5 @@ public enum MapTag
     Gameplay = 1 << 2,
     Audio = 1 << 3,
     Network = 1 << 4,
-    Persistence = 1 << 5,
+    Persistence = 1 << 5
 }

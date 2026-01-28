@@ -5,20 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 
-class CachedNode
-{
-    public Type Type;
-    public MapNodeAttribute Attr;
-    public List<string> Exposed = new List<string>();
-    public List<CachedConsumer> Consumers = new List<CachedConsumer>();
-}
-
-class CachedConsumer
-{
-    public string Name;
-    public List<string> Uses = new List<string>();
-}
-
 class SystemMapIssue
 {
     public string Title;
@@ -27,9 +13,25 @@ class SystemMapIssue
 
 class SystemMapGraph
 {
-    public List<CachedNode> Nodes = new List<CachedNode>();
+    public List<SystemMapNode> Nodes = new List<SystemMapNode>();
     public Dictionary<Type, HashSet<Type>> Edges = new Dictionary<Type, HashSet<Type>>();
     public List<SystemMapIssue> Issues = new List<SystemMapIssue>();
+}
+
+class SystemMapNode
+{
+    public Type Type;
+    public MapNodeAttribute Attr;
+    public string Comment;
+    public List<string> Exposed = new List<string>();
+    public List<SystemMapLink> Outgoing = new List<SystemMapLink>();
+    public List<SystemMapLink> Incoming = new List<SystemMapLink>();
+}
+
+class SystemMapLink
+{
+    public SystemMapNode Target;
+    public List<string> Uses = new List<string>();
 }
 
 public class Node
@@ -61,7 +63,7 @@ public class MapWindow : EditorWindow
     private MapTag _viewFilter = MapTag.Manager;
     private Tab _tab = Tab.Hierarchy;
 
-    private HashSet<Type> _expandedNodes = new HashSet<Type>();
+    private HashSet<string> _expandedPaths = new HashSet<string>();
 
     private IEnumerable<Type> GetAllTypesSafely()
     {
@@ -92,14 +94,26 @@ public class MapWindow : EditorWindow
         return filter == MapTag.None || (tags & filter) != 0;
     }
 
+    private static List<string> GetExposed(Type type)
+    {
+        return type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.GetCustomAttribute<ExposedAttribute>() != null)
+            .Select(m =>
+            {
+                ExposedAttribute ex = m.GetCustomAttribute<ExposedAttribute>();
+                return string.IsNullOrWhiteSpace(ex.Alias) ? m.Name : ex.Alias;
+            })
+            .Distinct()
+            .ToList();
+    }
+
     private void BuildCache()
     {
         _graph = BuildGraph();
         _cacheBuilt = true;
+
         if (_graph != null && _graph.Issues.Count == 0 && _tab == Tab.Problems)
-        {
             _tab = Tab.Hierarchy;
-        }
     }
 
     private SystemMapGraph BuildGraph()
@@ -115,59 +129,61 @@ public class MapWindow : EditorWindow
 
         HashSet<Type> nodeTypes = new HashSet<Type>(nodes.Select(n => n.Type));
 
+        Dictionary<Type, SystemMapNode> nodeByType = new Dictionary<Type, SystemMapNode>();
+
         for (int i = 0; i < nodes.Count; i++)
         {
-            Node node = nodes[i];
+            Node n = nodes[i];
 
-            CachedNode cached = new CachedNode();
-            cached.Type = node.Type;
-            cached.Attr = node.Attr;
+            SystemMapNode node = new SystemMapNode();
+            node.Type = n.Type;
+            node.Attr = n.Attr;
 
-            List<string> exposed = node.Type
-                .GetMembers(BindingFlags.Public | BindingFlags.Instance)
-                .Where(m => m.GetCustomAttribute<ExposedAttribute>() != null)
-                .Select(m =>
-                {
-                    ExposedAttribute ex = m.GetCustomAttribute<ExposedAttribute>();
-                    return string.IsNullOrWhiteSpace(ex.Alias) ? m.Name : ex.Alias;
-                })
-                .Distinct()
-                .ToList();
+            MapNodeComment commentAttr = n.Type.GetCustomAttribute<MapNodeComment>();
+            node.Comment = commentAttr != null ? commentAttr.Comment : null;
 
-            cached.Exposed = exposed;
+            node.Exposed = GetExposed(n.Type);
 
-            graph.Nodes.Add(cached);
+            nodeByType[n.Type] = node;
+            graph.Nodes.Add(node);
         }
 
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            graph.Nodes[i].Consumers.Clear();
+            SystemMapNode t = graph.Nodes[i];
+            t.Outgoing.Clear();
+            t.Incoming.Clear();
         }
 
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            CachedNode target = graph.Nodes[i];
-            Type targetType = target.Type;
+            SystemMapNode consumerNode = graph.Nodes[i];
+            Type consumerType = consumerNode.Type;
 
             for (int j = 0; j < graph.Nodes.Count; j++)
             {
-                CachedNode consumer = graph.Nodes[j];
-                Type consumerType = consumer.Type;
+                SystemMapNode targetNode = graph.Nodes[j];
+                Type targetType = targetNode.Type;
 
                 if (consumerType == targetType)
                     continue;
 
-                bool depends = DependsOnTypeByReflection(consumerType, targetType, nodeTypes);
+                bool depends = DependsOnTypeByReflection(consumerType, targetType);
                 if (!depends)
                     continue;
 
-                CachedConsumer c = new CachedConsumer();
-                c.Name = consumer.Attr.DisplayName;
-                c.Uses = new List<string>();
-
-                target.Consumers.Add(c);
-
                 AddEdge(graph.Edges, consumerType, targetType);
+
+                SystemMapLink outLink = new SystemMapLink();
+                outLink.Target = targetNode;
+                outLink.Uses = new List<string>();
+
+                SystemMapLink inLink = new SystemMapLink();
+                inLink.Target = consumerNode;
+                inLink.Uses = outLink.Uses;
+
+                consumerNode.Outgoing.Add(outLink);
+                targetNode.Incoming.Add(inLink);
             }
         }
 
@@ -189,7 +205,7 @@ public class MapWindow : EditorWindow
         set.Add(to);
     }
 
-    private static bool DependsOnTypeByReflection(Type consumerType, Type targetType, HashSet<Type> nodeTypes)
+    private static bool DependsOnTypeByReflection(Type consumerType, Type targetType)
     {
         BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
@@ -391,11 +407,178 @@ public class MapWindow : EditorWindow
     {
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            CachedNode n = graph.Nodes[i];
+            SystemMapNode n = graph.Nodes[i];
             if (n.Type == type)
                 return n.Attr.DisplayName;
         }
         return type.Name;
+    }
+
+    private void CollectPaths(SystemMapNode node, string path, HashSet<SystemMapNode> visited)
+    {
+        if (visited.Contains(node))
+            return;
+
+        visited.Add(node);
+        _expandedPaths.Add(path);
+
+        for (int i = 0; i < node.Outgoing.Count; i++)
+        {
+            SystemMapLink link = node.Outgoing[i];
+            string childPath = path + "/" + link.Target.Type.FullName;
+            CollectPaths(link.Target, childPath, new HashSet<SystemMapNode>(visited));
+        }
+    }
+
+    private bool DrawFoldout(SystemMapNode node, string path)
+    {
+        bool isExpanded = _expandedPaths.Contains(path);
+
+        GUIStyle foldoutStyle = new GUIStyle(EditorStyles.foldout);
+        foldoutStyle.fontStyle = FontStyle.Bold;
+
+        GUIContent label = new GUIContent(
+            node.Type.FullName + "  [" + node.Attr.Tags + "]",
+            node.Comment ?? ""
+        );
+
+        bool newExpanded = EditorGUILayout.Foldout(isExpanded, label, true, foldoutStyle);
+
+        if (newExpanded != isExpanded)
+        {
+            if (newExpanded)
+                _expandedPaths.Add(path);
+            else
+                _expandedPaths.Remove(path);
+        }
+
+        return newExpanded;
+    }
+
+    private void DrawNode(SystemMapNode node, int indent, HashSet<SystemMapNode> visited, string path)
+    {
+        if (visited.Contains(node))
+            return;
+
+        visited.Add(node);
+
+        int previousIndent = EditorGUI.indentLevel;
+        EditorGUI.indentLevel = indent;
+
+        bool expanded = DrawFoldout(node, path);
+        if (!expanded)
+        {
+            EditorGUI.indentLevel = previousIndent;
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(node.Comment))
+            EditorGUILayout.LabelField(node.Comment, EditorStyles.wordWrappedMiniLabel);
+
+        if (node.Exposed.Count > 0)
+            EditorGUILayout.LabelField("Exposes: " + string.Join(", ", node.Exposed));
+
+        List<SystemMapLink> links = node.Outgoing.OrderBy(l => l.Target.Type.FullName).ToList();
+
+        for (int i = 0; i < links.Count; i++)
+        {
+            SystemMapLink link = links[i];
+            string usesTxt = link.Uses.Count > 0 ? " (uses: " + string.Join(", ", link.Uses) + ")" : "";
+            EditorGUILayout.LabelField("Uses: " + link.Target.Type.FullName + usesTxt);
+        }
+
+        for (int i = 0; i < links.Count; i++)
+        {
+            SystemMapLink link = links[i];
+            DrawNode(link.Target, indent + 2, new HashSet<SystemMapNode>(visited), path + "/" + link.Target.Type.FullName);
+        }
+
+        EditorGUI.indentLevel = previousIndent;
+    }
+
+    private void WriteNodeRecursive(System.Text.StringBuilder sb, SystemMapNode node, HashSet<SystemMapNode> visited, int indent)
+    {
+        if (visited.Contains(node))
+            return;
+
+        visited.Add(node);
+
+        string indentStr = new string(' ', indent * 4);
+        string title = node.Type.FullName + " [" + node.Attr.Tags + "]";
+
+        sb.AppendLine(indentStr + "- **" + title + "**");
+
+        if (!string.IsNullOrEmpty(node.Comment))
+            sb.AppendLine(indentStr + "  - _" + node.Comment + "_");
+
+        if (node.Exposed.Count > 0)
+            sb.AppendLine(indentStr + "  Exposes: " + string.Join(", ", node.Exposed));
+
+        List<SystemMapLink> links = node.Outgoing.OrderBy(l => l.Target.Type.FullName).ToList();
+
+        for (int i = 0; i < links.Count; i++)
+        {
+            SystemMapLink link = links[i];
+            string usesTxt = link.Uses.Count > 0 ? " (uses: " + string.Join(", ", link.Uses) + ")" : "";
+            sb.AppendLine(indentStr + "  -> Uses " + link.Target.Type.FullName + usesTxt);
+        }
+
+        for (int i = 0; i < links.Count; i++)
+        {
+            WriteNodeRecursive(sb, links[i].Target, visited, indent + 1);
+        }
+    }
+
+    private List<SystemMapNode> GetRoots()
+    {
+        List<SystemMapNode> roots = _graph.Nodes
+            .Where(n => n.Incoming.Count == 0)
+            .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
+            .OrderBy(n => n.Type.FullName)
+            .ToList();
+
+        if (roots.Count == 0)
+        {
+            roots = _graph.Nodes
+                .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
+                .OrderBy(n => n.Type.FullName)
+                .ToList();
+        }
+
+        return roots;
+    }
+
+    private void ExportMap()
+    {
+        if (!_cacheBuilt)
+            BuildCache();
+
+        if (_graph == null)
+            return;
+
+        string path = EditorUtility.SaveFilePanel(
+            "System Map Export",
+            "",
+            "SystemMap",
+            "md"
+        );
+
+        if (string.IsNullOrEmpty(path))
+            return;
+
+        List<SystemMapNode> roots = GetRoots();
+
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        sb.AppendLine("# System Map\n");
+
+        for (int i = 0; i < roots.Count; i++)
+        {
+            WriteNodeRecursive(sb, roots[i], new HashSet<SystemMapNode>(), 0);
+            sb.AppendLine();
+        }
+
+        System.IO.File.WriteAllText(path, sb.ToString());
+        EditorUtility.RevealInFinder(path);
     }
 
     private void OnGUI()
@@ -403,36 +586,59 @@ public class MapWindow : EditorWindow
         if (!_cacheBuilt)
             BuildCache();
 
-        EditorGUILayout.BeginHorizontal();
-        EditorGUILayout.LabelField("View Filter (tags)", EditorStyles.boldLabel);
-        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.Space(10);
 
+        EditorGUILayout.LabelField("View Filter (tags)", EditorStyles.boldLabel);
         _viewFilter = (MapTag)EditorGUILayout.EnumFlagsField(_viewFilter);
 
-        EditorGUILayout.Space();
+        EditorGUILayout.Space(10);
 
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button("Refresh"))
-        {
             BuildCache();
-        }
 
-<<<<<<< HEAD
         bool hasIssues = _graph != null && _graph.Issues.Count > 0;
         string problemsLabel = hasIssues ? "Problems (" + _graph.Issues.Count + ")" : "Problems";
         int selected = GUILayout.Toolbar((int)_tab, new string[] { "Hierarchy", problemsLabel });
         _tab = (Tab)selected;
+
         if (!hasIssues && _tab == Tab.Problems)
-        {
             _tab = Tab.Hierarchy;
-        }
 
         EditorGUILayout.EndHorizontal();
 
-        EditorGUILayout.Space();
+        EditorGUILayout.Space(10);
 
         if (_tab == Tab.Hierarchy)
         {
+            EditorGUILayout.LabelField("Export", EditorStyles.boldLabel);
+            if (GUILayout.Button("Export as .md"))
+                ExportMap();
+
+            EditorGUILayout.Space(10);
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Expand All"))
+            {
+                _expandedPaths.Clear();
+
+                if (_graph != null)
+                {
+                    List<SystemMapNode> roots = GetRoots();
+                    for (int i = 0; i < roots.Count; i++)
+                    {
+                        CollectPaths(roots[i], roots[i].Type.FullName, new HashSet<SystemMapNode>());
+                    }
+                }
+            }
+
+            if (GUILayout.Button("Collapse All"))
+                _expandedPaths.Clear();
+
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(10);
+
             DrawHierarchy();
         }
         else
@@ -447,32 +653,11 @@ public class MapWindow : EditorWindow
 
         if (_graph != null)
         {
-            IEnumerable<CachedNode> filtered = _graph.Nodes
-                .Where(n => HasAnyTag(n.Attr.Tags, _viewFilter))
-                .OrderBy(n => n.Attr.DisplayName);
+            List<SystemMapNode> roots = GetRoots();
 
-            foreach (CachedNode node in filtered)
+            for (int i = 0; i < roots.Count; i++)
             {
-                EditorGUILayout.LabelField(node.Attr.DisplayName + "  [" + node.Attr.Tags + "]", EditorStyles.boldLabel);
-=======
-                if (node.Exposed.Count > 0)
-                    EditorGUILayout.LabelField("Exposes: " + string.Join(", ", node.Exposed));
-
-                foreach (CachedConsumer c in node.Consumers.OrderBy(c => c.Name))
-                {
-                    string usesTxt = c.Uses.Count > 0 ? $" (uses: {string.Join(", ", c.Uses)})" : "";
-                EditorGUILayout.LabelField($"   └ {c.Name}{usesTxt}");
-            }
->>>>>>> origin/UI
-
-                if (node.Exposed.Count > 0)
-                    EditorGUILayout.LabelField("  Exposes: " + string.Join(", ", node.Exposed));
-
-                IEnumerable<CachedConsumer> consumers = node.Consumers.OrderBy(c => c.Name);
-                foreach (CachedConsumer c in consumers)
-                    EditorGUILayout.LabelField("   └ " + c.Name);
-
-                EditorGUILayout.Space();
+                DrawNode(roots[i], 0, new HashSet<SystemMapNode>(), roots[i].Type.FullName);
             }
         }
 
@@ -499,5 +684,10 @@ public class MapWindow : EditorWindow
         }
 
         EditorGUILayout.EndScrollView();
+    }
+
+    private void OnEnable()
+    {
+        BuildCache();
     }
 }
