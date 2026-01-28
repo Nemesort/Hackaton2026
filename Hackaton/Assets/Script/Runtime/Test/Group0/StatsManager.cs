@@ -1,6 +1,7 @@
 using System;
 
 [MapNode("StatsManager", MapTag.Manager | MapTag.Gameplay)]
+[MapNodeComment("Stats that are used by any entities")]
 public class StatsManager
 {
     [Exposed] public int pv;
