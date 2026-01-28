@@ -61,6 +61,8 @@ public class MapWindow : EditorWindow
     private MapTag _viewFilter = MapTag.Manager;
     private Tab _tab = Tab.Hierarchy;
 
+    private HashSet<Type> _expandedNodes = new HashSet<Type>();
+
     private IEnumerable<Type> GetAllTypesSafely()
     {
         Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
@@ -415,6 +417,7 @@ public class MapWindow : EditorWindow
             BuildCache();
         }
 
+<<<<<<< HEAD
         bool hasIssues = _graph != null && _graph.Issues.Count > 0;
         string problemsLabel = hasIssues ? "Problems (" + _graph.Issues.Count + ")" : "Problems";
         int selected = GUILayout.Toolbar((int)_tab, new string[] { "Hierarchy", problemsLabel });
@@ -451,6 +454,16 @@ public class MapWindow : EditorWindow
             foreach (CachedNode node in filtered)
             {
                 EditorGUILayout.LabelField(node.Attr.DisplayName + "  [" + node.Attr.Tags + "]", EditorStyles.boldLabel);
+=======
+                if (node.Exposed.Count > 0)
+                    EditorGUILayout.LabelField("Exposes: " + string.Join(", ", node.Exposed));
+
+                foreach (CachedConsumer c in node.Consumers.OrderBy(c => c.Name))
+                {
+                    string usesTxt = c.Uses.Count > 0 ? $" (uses: {string.Join(", ", c.Uses)})" : "";
+                EditorGUILayout.LabelField($"   └ {c.Name}{usesTxt}");
+            }
+>>>>>>> origin/UI
 
                 if (node.Exposed.Count > 0)
                     EditorGUILayout.LabelField("  Exposes: " + string.Join(", ", node.Exposed));
