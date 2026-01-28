@@ -16,6 +16,7 @@ class SystemMapGraph
     public List<SystemMapNode> Nodes = new List<SystemMapNode>();
     public Dictionary<Type, HashSet<Type>> Edges = new Dictionary<Type, HashSet<Type>>();
     public List<SystemMapIssue> Issues = new List<SystemMapIssue>();
+    public HashSet<(Type From, Type To)> CyclicEdges = new HashSet<(Type, Type)>();
 }
 
 class SystemMapNode
@@ -64,6 +65,7 @@ public class MapWindow : EditorWindow
     private Tab _tab = Tab.Hierarchy;
 
     private HashSet<string> _expandedPaths = new HashSet<string>();
+    private bool _reverseView = false;
 
     private IEnumerable<Type> GetAllTypesSafely()
     {
@@ -87,11 +89,6 @@ public class MapWindow : EditorWindow
                 yield return type;
             }
         }
-    }
-
-    private static bool HasAnyTag(MapTag tags, MapTag filter)
-    {
-        return filter == MapTag.None || (tags & filter) != 0;
     }
 
     private static List<string> GetExposed(Type type)
@@ -356,6 +353,11 @@ public class MapWindow : EditorWindow
                         issue.Title = "Cycle detected";
                         issue.Details = BuildCycleDisplay(graph, cycle);
                         graph.Issues.Add(issue);
+
+                        for (int i = 0; i < cycle.Count - 1; i++)
+                        {
+                            graph.CyclicEdges.Add((cycle[i], cycle[i + 1]));
+                        }
                     }
                 }
             }
@@ -472,19 +474,26 @@ public class MapWindow : EditorWindow
             return;
         }
 
-        if (!string.IsNullOrEmpty(node.Comment))
-            EditorGUILayout.LabelField(node.Comment, EditorStyles.wordWrappedMiniLabel);
-
         if (node.Exposed.Count > 0)
             EditorGUILayout.LabelField("Exposes: " + string.Join(", ", node.Exposed));
 
-        List<SystemMapLink> links = node.Outgoing.OrderBy(l => l.Target.Type.FullName).ToList();
+        List<SystemMapLink> links = (!_reverseView ? node.Outgoing : node.Incoming)
+            .OrderBy(l => l.Target.Type.FullName)
+            .ToList();
 
         for (int i = 0; i < links.Count; i++)
         {
             SystemMapLink link = links[i];
             string usesTxt = link.Uses.Count > 0 ? " (uses: " + string.Join(", ", link.Uses) + ")" : "";
-            EditorGUILayout.LabelField("Uses: " + link.Target.Type.FullName + usesTxt);
+
+            bool isCycleEdge = _graph.CyclicEdges.Contains((node.Type, link.Target.Type));
+
+            GUIStyle style = new GUIStyle(EditorStyles.label);
+            if (isCycleEdge)
+                style.normal.textColor = Color.red;
+
+            string prefix = _reverseView ? "Used by: " : "Uses: ";
+            EditorGUILayout.LabelField(prefix + link.Target.Type.FullName + usesTxt, style);
         }
 
         for (int i = 0; i < links.Count; i++)
@@ -531,8 +540,14 @@ public class MapWindow : EditorWindow
 
     private List<SystemMapNode> GetRoots()
     {
-        List<SystemMapNode> roots = _graph.Nodes
-            .Where(n => n.Incoming.Count == 0)
+        IEnumerable<SystemMapNode> query;
+
+        if (!_reverseView)
+            query = _graph.Nodes.Where(n => n.Incoming.Count == 0);
+        else
+            query = _graph.Nodes.Where(n => n.Outgoing.Count == 0);
+
+        List<SystemMapNode> roots = query
             .Where(n => _viewFilter == MapTag.None || (n.Attr.Tags & _viewFilter) != 0)
             .OrderBy(n => n.Type.FullName)
             .ToList();
@@ -557,9 +572,9 @@ public class MapWindow : EditorWindow
             return;
 
         string path = EditorUtility.SaveFilePanel(
-            "System Map Export",
+            "Nemad Map Viewer",
             "",
-            "SystemMap",
+            "Nemad Map Viewer",
             "md"
         );
 
@@ -569,7 +584,7 @@ public class MapWindow : EditorWindow
         List<SystemMapNode> roots = GetRoots();
 
         System.Text.StringBuilder sb = new System.Text.StringBuilder();
-        sb.AppendLine("# System Map\n");
+        sb.AppendLine("# Nemad Map Viewer\n");
 
         for (int i = 0; i < roots.Count; i++)
         {
@@ -587,12 +602,11 @@ public class MapWindow : EditorWindow
             BuildCache();
 
         EditorGUILayout.Space(10);
-
         EditorGUILayout.LabelField("View Filter (tags)", EditorStyles.boldLabel);
         _viewFilter = (MapTag)EditorGUILayout.EnumFlagsField(_viewFilter);
+        _reverseView = EditorGUILayout.ToggleLeft("Reverse view (start from parents, does not display cycles)", _reverseView);
 
         EditorGUILayout.Space(10);
-
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button("Refresh"))
             BuildCache();
@@ -608,7 +622,6 @@ public class MapWindow : EditorWindow
         EditorGUILayout.EndHorizontal();
 
         EditorGUILayout.Space(10);
-
         if (_tab == Tab.Hierarchy)
         {
             EditorGUILayout.LabelField("Export", EditorStyles.boldLabel);
