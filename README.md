@@ -15,6 +15,13 @@ It helps you:
 Unity **6000.0** or later versions.
 
 
+#### Installation
+
+Using Unity's `Package Mannager`, you can install the package using the following git URL:
+```
+https://github.com/Nemesort/Hackaton2026.git#package
+```
+
 ### Quick Start
 
 #### Mark a class as a node

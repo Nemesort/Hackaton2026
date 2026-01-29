@@ -1,6 +1,6 @@
 {
-    "name": "nomad-system-viewer",
-    "displayName": "Nomad System Viewer",
+    "name": "nemad-system-viewer",
+    "displayName": "Nemad System Viewer",
     "version": "0.0.8",
     "description": "Tools that provide a hierarchy of your scripts. expose cyclics dependencies, and allow you to export it.",
     "unity": "6000.0",
