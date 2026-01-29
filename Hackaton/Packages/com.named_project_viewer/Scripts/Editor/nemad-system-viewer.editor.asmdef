@@ -1,0 +1,14 @@
+{
+  "name": "Nemad.SystemViewer.Editor",
+  "references": [
+    "Nemad.SystemViewer.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true
+}
