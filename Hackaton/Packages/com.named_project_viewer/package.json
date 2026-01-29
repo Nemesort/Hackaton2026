@@ -1,12 +1,12 @@
 {
-    "name": "nomad-project-viewer",
-    "displayName": "Nomad Project Viewer",
-    "version": "0.0.1",
-    "description": "Visualize the architecture of your project",
+    "name": "nomad-system-viewer",
+    "displayName": "Nomad System Viewer",
+    "version": "0.0.8",
+    "description": "Tools that provide a hierarchy of your scripts. expose cyclics dependencies, and allow you to export it.",
     "unity": "6000.0",
     "keywords": [
         "Viewer",
-        "Visualize",
-        "Visualizer"
+        "Visualizer",
+        "hierarchy"
     ]
 }

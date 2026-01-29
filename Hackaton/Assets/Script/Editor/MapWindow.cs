@@ -43,10 +43,10 @@ public class Node
 
 public class MapWindow : EditorWindow
 {
-    [MenuItem("Tools/System Map")]
+    [MenuItem("Tools/Nemad System Viewer")]
     public static void Open()
     {
-        GetWindow<MapWindow>("System Map");
+        GetWindow<MapWindow>("Nemad System Viewer");
     }
 
     private enum Tab
@@ -572,9 +572,9 @@ public class MapWindow : EditorWindow
             return;
 
         string path = EditorUtility.SaveFilePanel(
-            "Nemad Map Viewer",
+            "Nemad Exported System",
             "",
-            "Nemad Map Viewer",
+            "Nemad Exported System",
             "md"
         );
 
@@ -584,7 +584,7 @@ public class MapWindow : EditorWindow
         List<SystemMapNode> roots = GetRoots();
 
         System.Text.StringBuilder sb = new System.Text.StringBuilder();
-        sb.AppendLine("# Nemad Map Viewer\n");
+        sb.AppendLine("# Nemad System Viewer\n");
 
         for (int i = 0; i < roots.Count; i++)
         {
