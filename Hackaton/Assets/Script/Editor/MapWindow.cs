@@ -91,19 +91,6 @@ public class MapWindow : EditorWindow
         }
     }
 
-    private static List<string> GetExposed(Type type)
-    {
-        return type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.GetCustomAttribute<ExposedAttribute>() != null)
-            .Select(m =>
-            {
-                ExposedAttribute ex = m.GetCustomAttribute<ExposedAttribute>();
-                return string.IsNullOrWhiteSpace(ex.Alias) ? m.Name : ex.Alias;
-            })
-            .Distinct()
-            .ToList();
-    }
-
     private void BuildCache()
     {
         _graph = BuildGraph();
@@ -138,8 +125,6 @@ public class MapWindow : EditorWindow
 
             MapNodeComment commentAttr = n.Type.GetCustomAttribute<MapNodeComment>();
             node.Comment = commentAttr != null ? commentAttr.Comment : null;
-
-            node.Exposed = GetExposed(n.Type);
 
             nodeByType[n.Type] = node;
             graph.Nodes.Add(node);

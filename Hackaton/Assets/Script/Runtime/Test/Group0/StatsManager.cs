@@ -4,10 +4,10 @@ using System;
 [MapNodeComment("Stats that are used by any entities")]
 public class StatsManager
 {
-    [Exposed] public int pv;
-    [Exposed] public int pm;
-    [Exposed] public int sp;
-    [Exposed] public int actions;
+    public int pv;
+    public int pm;
+    public int sp;
+    public int actions;
 
     private ExplorationSystem explorationSystem;
 }
