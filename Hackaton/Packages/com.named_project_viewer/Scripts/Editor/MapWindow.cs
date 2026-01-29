@@ -120,8 +120,19 @@ public class MapWindow : EditorWindow
         IEnumerable<Type> allTypes = GetAllTypesSafely();
 
         List<Node> nodes = allTypes
-            .Select(t => new Node { Type = t, Attr = t.GetCustomAttribute<MapNodeAttribute>() })
-            .Where(n => n.Attr != null)
+            .Select(t => new Node
+            {
+                Type = t,
+                Attr = t.GetCustomAttribute<MapNodeAttribute>() ?? new MapNodeAttribute(t.Name, MapTag.None)
+            })
+            .ToList();
+
+        nodes = nodes
+            .Where(n => n.Type.IsClass)
+            .Where(n => !n.Type.IsAbstract)
+            .Where(n => n.Type.Namespace == null || !n.Type.Namespace.StartsWith("Unity", StringComparison.Ordinal))
+            .Where(n => n.Type.Namespace == null || !n.Type.Namespace.StartsWith("System", StringComparison.Ordinal))
+            .Where(n => n.Type.Namespace == null || !n.Type.Namespace.StartsWith("Microsoft", StringComparison.Ordinal))
             .ToList();
 
         HashSet<Type> nodeTypes = new HashSet<Type>(nodes.Select(n => n.Type));

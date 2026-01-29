@@ -1,4 +1,5 @@
 ﻿<Solution>
+  <Project Path="Nemad.SystemViewer.Editor.csproj" />
+  <Project Path="Nemad.SystemViewer.Runtime.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
-  <Project Path="Assembly-CSharp-Editor.csproj" />
 </Solution>
